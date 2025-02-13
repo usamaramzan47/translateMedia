@@ -45,7 +45,7 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
                     videoId: videoId,
                     playerVars: {
                         mute: 1,
-                        controls: 1,
+                        controls: 0,
                         disablekb: 1,
                         modestbranding: 1,
                         rel: 0
