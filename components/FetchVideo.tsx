@@ -72,7 +72,7 @@ const FetchVideo = () => {
             {/* Re-render CustomYouTubePlayer when videoId changes */}
             {videoId && <CustomPlayer
                 videoId={videoId}
-                audioUrl="/audio/a1.mp3"
+                audioUrl="/audio/a2.mp3"
             />}
         </div >
     );

@@ -23,6 +23,7 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
     const [currentTime, setCurrentTime] = useState(0);
     const [isVideoReady, setIsVideoReady] = useState(false);
     const [isAudioReady, setIsAudioReady] = useState(false);
+    const progressUpdateInterval = useRef<NodeJS.Timeout | undefined>(undefined);
 
     // Initialize YouTube API
     useEffect(() => {
@@ -43,19 +44,46 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
                 videoPlayerRef.current = new YT.Player('youtube-player', {
                     videoId: videoId,
                     playerVars: {
-                        mute: 1, // Start muted
-                        controls: 0, // Hide default controls
+                        mute: 1,
+                        controls: 1,
+                        disablekb: 1,
+                        modestbranding: 1,
+                        rel: 0
                     },
                     events: {
                         onReady: () => {
                             setIsVideoReady(true);
                             if (videoPlayerRef.current) {
-                                setDuration(videoPlayerRef.current.getDuration());
+                                const videoDuration = videoPlayerRef.current.getDuration();
+                                setDuration(videoDuration);
                             }
                         },
                         onStateChange: (event) => {
-                            setIsPlaying(event.data === YT.PlayerState.PLAYING);
-                        },
+                            // Handle video end
+                            if (event.data === YT.PlayerState.ENDED) {
+                                setIsPlaying(false);
+                                if (audioRef.current) {
+                                    audioRef.current.pause();
+                                    audioRef.current.currentTime = 0;
+                                }
+                                setProgress(0);
+                                setCurrentTime(0);
+                            }
+                            // Handle play state
+                            else if (event.data === YT.PlayerState.PLAYING) {
+                                setIsPlaying(true);
+                                if (audioRef.current && audioRef.current.paused) {
+                                    audioRef.current.play();
+                                }
+                            }
+                            // Handle pause state
+                            else if (event.data === YT.PlayerState.PAUSED) {
+                                setIsPlaying(false);
+                                if (audioRef.current && !audioRef.current.paused) {
+                                    audioRef.current.pause();
+                                }
+                            }
+                        }
                     },
                 });
             }
@@ -84,19 +112,61 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
                 setIsAudioReady(true);
             });
 
-            audioRef.current.addEventListener('timeupdate', () => {
-                if (audioRef.current) {
-                    const newProgress = (audioRef.current.currentTime / audioRef.current.duration) * 100;
-                    setProgress(newProgress);
-                    setCurrentTime(audioRef.current.currentTime);
+            audioRef.current.addEventListener('play', () => {
+                if (videoPlayerRef.current && videoPlayerRef.current.getPlayerState() !== YT.PlayerState.PLAYING) {
+                    videoPlayerRef.current.playVideo();
+                }
+            });
+
+            audioRef.current.addEventListener('pause', () => {
+                if (videoPlayerRef.current && videoPlayerRef.current.getPlayerState() === YT.PlayerState.PLAYING) {
+                    videoPlayerRef.current.pauseVideo();
                 }
             });
         }
     }, [audioUrl]);
 
-    const getCurrentTime = useCallback(() => {
-        return audioRef.current?.currentTime || 0;
-    }, []);
+    // Sync progress updates and handle video end
+    useEffect(() => {
+        const clearProgressInterval = () => {
+            if (progressUpdateInterval.current) {
+                clearInterval(progressUpdateInterval.current);
+                progressUpdateInterval.current = undefined;
+            }
+        };
+
+        if (isPlaying) {
+            progressUpdateInterval.current = setInterval(() => {
+                if (videoPlayerRef.current && audioRef.current) {
+                    const videoTime = videoPlayerRef.current.getCurrentTime();
+                    const videoDuration = videoPlayerRef.current.getDuration();
+
+                    // Check if video has reached its end
+                    if (videoTime >= videoDuration) {
+                        audioRef.current.pause();
+                        audioRef.current.currentTime = 0;
+                        setIsPlaying(false);
+                        clearProgressInterval();
+                        return;
+                    }
+
+                    const audioTime = audioRef.current.currentTime;
+
+                    // Sync if difference is more than 0.2 seconds
+                    if (Math.abs(videoTime - audioTime) > 0.2) {
+                        audioRef.current.currentTime = videoTime;
+                    }
+
+                    setCurrentTime(videoTime);
+                    setProgress((videoTime / duration) * 100);
+                }
+            }, 250);
+        } else {
+            clearProgressInterval();
+        }
+
+        return clearProgressInterval;
+    }, [isPlaying, duration]);
 
     const seekTo = useCallback((time: number) => {
         if (videoPlayerRef.current && audioRef.current) {
@@ -115,30 +185,34 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
                 videoPlayerRef.current.pauseVideo();
                 audioRef.current.pause();
             } else {
+                // Reset to beginning if ended
+                if (videoPlayerRef.current.getCurrentTime() >= videoPlayerRef.current.getDuration()) {
+                    seekTo(0);
+                }
                 videoPlayerRef.current.playVideo();
                 audioRef.current.play();
             }
-            setIsPlaying(!isPlaying);
         }
-    }, [isPlaying, isVideoReady, isAudioReady]);
+    }, [isPlaying, isVideoReady, isAudioReady, seekTo]);
 
     const handleSkipTime = useCallback((time: number) => {
-        const currentTime = getCurrentTime();
-        const newTime = time > 0
-            ? Math.min(currentTime + time, duration)
-            : Math.max(currentTime + time, 0);
+        if (videoPlayerRef.current) {
+            const currentTime = videoPlayerRef.current.getCurrentTime();
+            const newTime = time > 0
+                ? Math.min(currentTime + time, duration)
+                : Math.max(currentTime + time, 0);
 
-        if (isFinite(newTime) && newTime >= 0 && newTime <= duration) {
-            seekTo(newTime);
+            if (isFinite(newTime) && newTime >= 0 && newTime <= duration) {
+                seekTo(newTime);
+            }
         }
-    }, [getCurrentTime, duration, seekTo]);
+    }, [duration, seekTo]);
 
     const handleSeek = useCallback((value: number[]) => {
         const newTime = (value[0] / 100) * duration;
         seekTo(newTime);
     }, [duration, seekTo]);
 
-    // Keyboard controls
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.target instanceof HTMLInputElement ||
