@@ -123,6 +123,18 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
                     videoPlayerRef.current.pauseVideo();
                 }
             });
+
+            // Add ended event listener for audio
+            audioRef.current.addEventListener('ended', () => {
+                setIsPlaying(false);
+                if (videoPlayerRef.current) {
+                    videoPlayerRef.current.pauseVideo();
+                    videoPlayerRef.current.seekTo(0, true);
+                }
+                audioRef.current!.currentTime = 0;
+                setProgress(0);
+                setCurrentTime(0);
+            });
         }
     }, [audioUrl]);
 
@@ -139,18 +151,20 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
             progressUpdateInterval.current = setInterval(() => {
                 if (videoPlayerRef.current && audioRef.current) {
                     const videoTime = videoPlayerRef.current.getCurrentTime();
-                    const videoDuration = videoPlayerRef.current.getDuration();
+                    // const videoDuration = videoPlayerRef.current.getDuration();
+                    const audioTime = audioRef.current.currentTime;
 
-                    // Check if video has reached its end
-                    if (videoTime >= videoDuration) {
-                        audioRef.current.pause();
-                        audioRef.current.currentTime = 0;
+                    // Check if audio has reached its end
+                    if (audioRef.current.ended) {
                         setIsPlaying(false);
+                        videoPlayerRef.current.pauseVideo();
+                        videoPlayerRef.current.seekTo(0, true);
+                        audioRef.current.currentTime = 0;
+                        setProgress(0);
+                        setCurrentTime(0);
                         clearProgressInterval();
                         return;
                     }
-
-                    const audioTime = audioRef.current.currentTime;
 
                     // Sync if difference is more than 0.2 seconds
                     if (Math.abs(videoTime - audioTime) > 0.2) {
@@ -186,7 +200,7 @@ const CustomPlayer = ({ videoId, audioUrl }: CustomPlayerProps) => {
                 audioRef.current.pause();
             } else {
                 // Reset to beginning if ended
-                if (videoPlayerRef.current.getCurrentTime() >= videoPlayerRef.current.getDuration()) {
+                if (videoPlayerRef.current.getCurrentTime() >= videoPlayerRef.current.getDuration() || audioRef.current.ended) {
                     seekTo(0);
                 }
                 videoPlayerRef.current.playVideo();
